@@ -52,61 +52,112 @@ map.addControl(new customControl());
 
 customControl = L.Control.extend({
     options: {
-        position: 'topright' // Change position as needed
+        position: 'topleft' // Change position as needed
     },
 
     onAdd: function (map) {
         var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-        container.innerHTML = `<button id="dropbtn" class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        container.innerHTML = `<div id="dropbtn"><button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                 ☰
             </button>
             <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#exampleModal">My Rides</a></li>
-            </ul>`;
+                <li><a class="dropdown-item" onclick="fetch_rides()" href="#" data-bs-toggle="modal" data-bs-target="#exampleModal">My Rides</a></li>
+            </ul></div>`;
         return container;
     }
 });
+
+const keyPair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
+
+// Get the public and private keys
+var publicKey = forge.pki.publicKeyToPem(keyPair.publicKey);
+var privateKey = forge.pki.privateKeyToPem(keyPair.privateKey);;
+
+function encrypt(key, value) {
+    public_key = forge.pki.publicKeyFromPem(key);
+    var encrypted = public_key.encrypt(value, "RSA-OAEP", {
+        md: forge.md.sha256.create(),
+        mgf1: forge.mgf1.create()
+    });
+    var base64 = forge.util.encode64(encrypted);
+    return base64
+}
+
+function decrypt(key, value) {
+
+    // Convert the provided private key from PEM format to a Forge private key object
+    var private_key = forge.pki.privateKeyFromPem(key);
+
+    // Convert the base64-encoded encrypted value to a byte buffer
+    var encryptedValue = forge.util.decode64(value);
+
+    try {
+        // Decrypt the encrypted value using RSA-OAEP decryption
+        var decrypted = private_key.decrypt(encryptedValue, "RSA-OAEP", {
+            md: forge.md.sha256.create(),  // SHA-256 hashing algorithm
+            mgf1: forge.mgf1.create()      // MGF1 mask generation function
+        });
+
+        // Return the decrypted value
+        return decrypted;
+    } catch (error) {
+        // If decryption fails, return "DECRYPTION FAILED"
+        return "DECRYPTION FAILED";
+    }
+}
+
+function fetch_rides() {
+    fetch('http://127.0.0.1:5000/fetch_rides')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json(); // Parse the response body as JSON
+        })
+        .then(data => {
+            let div = document.getElementById("exampleModal").childNodes[1].childNodes[1].childNodes[3]
+            div.innerHTML = ""
+            for (let i = 0; i < data.length; i++) {
+                for (let j = 0; j < data[i].coordinates.length; j++) {
+                    data[i].coordinates[j].lat = decrypt(privateKey, data[i].coordinates[j].lat)
+                    data[i].coordinates[j].lng = decrypt(privateKey, data[i].coordinates[j].lng)
+                }
+                div.innerHTML += `<div style="display: block !important; width: 100%;" class="toast align-items-center text-bg-primary border-0" role="alert" aria-live="assertive"
+                        aria-atomic="true">
+                        <div class="d-flex">
+                            <div class="toast-body" style="display:flex; justify-content: space-around; width: 100%;">
+                                <p>From: [`+ data[i].coordinates[0].lat + ', ' + data[i].coordinates[0].lng + ']</p> <p>To: [' + data[i].coordinates[data[i].coordinates.length - 1].lat + ',' + data[i].coordinates[data[i].coordinates.length - 1].lng +`]</p>
+                            </div>
+                        </div>
+                    </div><br>`
+            }
+
+            console.log(data);
+        })
+        .catch(error => {
+            console.error('There was a problem with the fetch operation:', error);
+        });
+}
 
 
 // Add the custom control to the map
 map.addControl(new customControl());
 
-document.getElementById("dropbtn").addEventListener('click', function(event){event.stopPropagation()})
+document.getElementById("dropbtn").addEventListener('click', function (event) { event.stopPropagation() })
 
-function encrypt(key, value) {
-    var publicKey = key;
 
-    const encrypt = new JSEncrypt()
-    encrypt.setPublicKey(publicKey)
-    const encryptedText = encrypt.encrypt(value) || 'ENCRYPTION FAILED'
-    return encryptedText
-}
-
-function decrypt(key, value) {
-    var private_key = key;
-    const decrypt = new JSEncrypt();
-    decrypt.setPrivateKey(key);
-    const decryptedText = decrypt.decrypt(value) || 'DECRYPTION FAILED'
-    return decryptedText
-}
 // Find Ride
 document.getElementById('find_ride').addEventListener('click', function (event) {
 
     if (markers.length >= 2) {
-        // Create a new instance of JSEncrypt
-        var enc = new JSEncrypt();
-
-        // Generate key pair with default key size (2048 bits)
-        enc.getKey();
-
-        // Get the public and private keys
-        var publicKey = enc.getPublicKey();
-        var privateKey = enc.getPrivateKey();
 
         let coordinates = [];
 
         for (let i = 0; i < props.coordinates.length; i++) {
-            coordinates.push(encrypt(props.public_key, JSON.stringify(props.coordinates[i])));
+            coordinates.push({
+                lat: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lat)),
+                lng: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lng))
+            });
         }
 
         let data = {
@@ -138,20 +189,14 @@ document.getElementById('find_ride').addEventListener('click', function (event) 
 document.getElementById('publish_ride').addEventListener('click', function (event) {
 
     if (markers.length >= 2) {
-        // Create a new instance of JSEncrypt
-        var enc = new JSEncrypt();
-
-        // Generate key pair with default key size (2048 bits)
-        enc.getKey();
-
-        // Get the public and private keys
-        var publicKey = enc.getPublicKey();
-        var privateKey = enc.getPrivateKey();
 
         let coordinates = [];
 
         for (let i = 0; i < props.coordinates.length; i++) {
-            coordinates.push(encrypt(props.public_key, JSON.stringify(props.coordinates[i])));
+            coordinates.push({
+                lat: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lat)),
+                lng: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lng))
+            });
         }
 
         let data = {

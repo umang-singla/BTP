@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_pymongo import PyMongo
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
 from flask_cors import CORS
@@ -6,6 +7,8 @@ from utils import decrypt, encrypt, check_intersection
 import base64
 
 app = Flask(__name__)
+app.config["MONGO_URI"] = "mongodb://localhost:27017/myDatabase"
+mongo = PyMongo(app)
 CORS(app)
 
 # Generate RSA key pair
@@ -32,26 +35,56 @@ def find_ride():
     data = request.get_json()
 
     count = 0
+    coordinates = []
     for i in range(0, len(data["coordinates"])):
-        data["coordinates"][i] = decrypt(data["coordinates"][i], keys['private_key'])
+        coordinates.append((decrypt(data["coordinates"][i]["lat"], keys['private_key']),
+                           decrypt(data["coordinates"][i]["lng"], keys['private_key'])))
+        
+    records = mongo.db.inventory.find()
 
-    for ride in available_rides:
-        coordinates = []
-        for i in ride["coordinates"]:
-            coordinates.append(decrypt(i, keys['private_key']))
+    for record in records:
+        arr = []
+        for i in range(len(record['coordinates'])):
+            arr.append((decrypt(record['coordinates'][i]['lat'], keys['private_key']), decrypt(record['coordinates'][i]['lng'], keys['private_key'])))
 
-        if check_intersection(coordinates, data["coordinates"]):
+        if check_intersection(coordinates, arr):
             count += 1
 
     response = {"count": count}
 
     return jsonify(response), 200
 
+@app.route('/fetch_rides', methods=['GET'])
+def fetch_rides():
+    records = mongo.db.inventory.find()
+
+    result = []
+
+    for record in records:
+        # Convert ObjectId to string for JSON serialization
+        data = {"_id": str(record['_id']),
+                "coordinates": []
+                }
+        data['coordinates'].append({
+            'lat': encrypt(record['public_key'], decrypt(record['coordinates'][0]['lat'], keys['private_key'])),
+            'lng': encrypt(record['public_key'], decrypt(record['coordinates'][0]['lng'], keys['private_key']))
+            })
+        
+        data['coordinates'].append({
+            'lat': encrypt(record['public_key'], decrypt(record['coordinates'][-1]['lat'], keys['private_key'])),
+            'lng': encrypt(record['public_key'], decrypt(record['coordinates'][-1]['lng'], keys['private_key']))
+            })
+        # for i in range(len(record['coordinates'])):
+        #     record['coordinates'][i]['lat'] = encrypt(record['public_key'], decrypt(record['coordinates'][i]['lat'], keys['private_key']))
+        #     record['coordinates'][i]['lng'] = encrypt(record['public_key'], decrypt(record['coordinates'][i]['lng'], keys['private_key']))
+        result.append(data)
     
+    return jsonify(result), 200
 
 @app.route('/publish_ride', methods=['POST'])
 def publish_ride():
     data = request.get_json()
+    mongo.db.inventory.insert_one(data)
     available_rides.append(data)
 
     return jsonify({'successs': True}), 200

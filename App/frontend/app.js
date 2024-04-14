@@ -69,6 +69,35 @@ customControl = L.Control.extend({
 
 const keyPair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
 
+// Function to generate a random key and IV
+function generateKeyAndIV() {
+    return {
+        key: forge.random.getBytesSync(16),  // AES-128
+        iv: forge.random.getBytesSync(16)    // Initialization vector
+    };
+}
+
+function aes_encrypt(plaintext, key, iv) {
+    const cipher = forge.cipher.createCipher('AES-CBC', key);
+    cipher.start({iv: iv});
+    cipher.update(forge.util.createBuffer(plaintext));
+    cipher.finish();
+    const encrypted = cipher.output.getBytes();
+    return forge.util.encode64(encrypted);
+}
+
+function aes_decrypt(ciphertext, key, iv) {
+    const decipher = forge.cipher.createDecipher('AES-CBC', key);
+    decipher.start({iv: iv});
+    decipher.update(forge.util.createBuffer(forge.util.decode64(ciphertext)));
+    decipher.finish();
+    return decipher.output.toString();
+}
+
+// Usage
+const key = forge.random.getBytesSync(16);
+const iv = forge.random.getBytesSync(16);
+
 // Get the public and private keys
 var publicKey = forge.pki.publicKeyToPem(keyPair.publicKey);
 var privateKey = forge.pki.privateKeyToPem(keyPair.privateKey);;
@@ -119,8 +148,8 @@ function fetch_rides() {
             div.innerHTML = ""
             for (let i = 0; i < data.length; i++) {
                 for (let j = 0; j < data[i].coordinates.length; j++) {
-                    data[i].coordinates[j].lat = decrypt(privateKey, data[i].coordinates[j].lat)
-                    data[i].coordinates[j].lng = decrypt(privateKey, data[i].coordinates[j].lng)
+                    data[i].coordinates[j].lat = aes_decrypt(data[i].coordinates[j].lat, key, iv)
+                    data[i].coordinates[j].lng = aes_decrypt(data[i].coordinates[j].lng, key, iv)
                 }
                 div.innerHTML += `<div style="display: block !important; width: 100%;" class="toast align-items-center text-bg-primary border-0" role="alert" aria-live="assertive"
                         aria-atomic="true">
@@ -155,15 +184,18 @@ document.getElementById('find_ride').addEventListener('click', function (event) 
 
         for (let i = 0; i < props.coordinates.length; i++) {
             coordinates.push({
-                lat: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lat)),
-                lng: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lng))
+                lat: aes_encrypt(JSON.stringify(props.coordinates[i].lat), key, iv),
+                lng: aes_encrypt(JSON.stringify(props.coordinates[i].lng), key, iv)
             });
         }
 
         let data = {
-            public_key: publicKey,
+            key: encrypt(props.public_key, key),
+            iv: encrypt(props.public_key, iv),
             coordinates: coordinates
         }
+
+        console.log(data)
 
         fetch("http://127.0.0.1:5000/find_ride", {
             method: 'POST',
@@ -194,14 +226,14 @@ document.getElementById('publish_ride').addEventListener('click', function (even
 
         for (let i = 0; i < props.coordinates.length; i++) {
             coordinates.push({
-                lat: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lat)),
-                lng: encrypt(props.public_key, JSON.stringify(props.coordinates[i].lng))
+                lat: aes_encrypt(JSON.stringify(props.coordinates[i].lat), key, iv),
+                lng: aes_encrypt(JSON.stringify(props.coordinates[i].lng), key, iv)
             });
         }
-
         let data = {
-            public_key: publicKey,
-            coordinates: coordinates
+            coordinates: coordinates,
+            key: encrypt(props.public_key, key),
+            iv: encrypt(props.public_key, iv)
         }
 
         fetch("http://127.0.0.1:5000/publish_ride", {

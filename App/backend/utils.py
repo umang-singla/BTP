@@ -3,15 +3,30 @@ from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
 import base64
 
+
 import geopy.distance
+
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Util.Padding import pad, unpad
 
 THRESHOLD = 0.5
 DELTA = 300
 
+def aes_encrypt(plaintext, key, iv):
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    ct_bytes = cipher.encrypt(pad(plaintext.encode(), AES.block_size))
+    return base64.b64encode(ct_bytes).decode()
+
+def aes_decrypt(ciphertext, key, iv):
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    pt = unpad(cipher.decrypt(base64.b64decode(ciphertext)), AES.block_size)
+    return pt.decode()
+
 def decrypt(cipher_text, key):
     cipher_rsa = PKCS1_OAEP.new(RSA.import_key(key), hashAlgo=SHA256)
     decrypted_data = cipher_rsa.decrypt(base64.b64decode(cipher_text))
-    return decrypted_data.decode('utf-8')
+    return decrypted_data
 
 def encrypt(public_key, data):
     # Convert public key to RSA object
